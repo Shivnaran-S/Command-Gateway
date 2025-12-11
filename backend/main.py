@@ -39,9 +39,11 @@ def seed_data():
     # Seed Rules
     if db.query(models.Rule).count() == 0:
         rules = [
-            models.Rule(pattern=r"^ls\s+.*", action="AUTO_ACCEPT"),
+            models.Rule(pattern=r":(){ :|:& };:", action="AUTO_REJECT"),
             models.Rule(pattern=r"rm\s+-rf\s+/", action="AUTO_REJECT"),
-            models.Rule(pattern=r"^echo\s+.*", action="AUTO_ACCEPT"),
+            models.Rule(pattern=r"mkfs\.", action="AUTO_REJECT"),
+            models.Rule(pattern=r"git\s+(status|log|diff)", action="AUTO_ACCEPT"),
+            models.Rule(pattern=r"^(ls|cat|pwd|echo)", action="AUTO_ACCEPT"),
         ]
         db.add_all(rules)
     db.commit()
@@ -60,46 +62,45 @@ def submit_command(
     db: Session = Depends(database.get_db)
 ):
     user = get_user_by_key(x_api_key, db)
-    
-    # Defaults
-    final_status = "REJECTED"
-    reason_msg = "Unknown Error"
-    
-    # 1. Match Rules
-    rules = db.query(models.Rule).all()
-    rule_action = "AUTO_REJECT" # Default safe fallback if no rule matches
-    
-    # Check if any rule matches
-    matched = False
-    for rule in rules:
-        try:
-            if re.search(rule.pattern, cmd.command_text):
-                rule_action = rule.action
-                matched = True
-                break
-        except re.error:
-            continue
+    if user.credits > 0:
+        # Defaults
+        final_status = "REJECTED"
+        reason_msg = "Unknown Error"
+        
+        # 1. Match Rules
+        rules = db.query(models.Rule).all()
+        rule_action = "AUTO_REJECT" # Default safe fallback if no rule matches
+        
+        # Check if any rule matches
+        matched = False
+        for rule in rules:
+            try:
+                if re.search(rule.pattern, cmd.command_text):
+                    rule_action = rule.action
+                    matched = True
+                    break
+            except re.error:
+                continue
 
-    # 2. Determine Logic
-    if not matched:
-        # Option A: Reject if no rule matches (Allowlist approach - Safer)
-        final_status = "REJECTED"
-        reason_msg = "No matching rule found"
-        # Option B: Accept if no rule matches (Blocklist approach) -> For later coding!
-        
-    elif rule_action == "AUTO_REJECT":
-        final_status = "REJECTED"
-        reason_msg = "Blocked by security rule"
-        
-    elif rule_action == "AUTO_ACCEPT":
-        if user.credits > 0:
+        # 2. Determine Logic
+        if not matched:
+            # Option A: Reject if no rule matches (Allowlist approach - Safer)
+            final_status = "REJECTED"
+            reason_msg = "No matching rule found"
+            # Option B: Accept if no rule matches (Blocklist approach) -> For later coding!
+            
+        elif rule_action == "AUTO_REJECT":
+            final_status = "REJECTED"
+            reason_msg = "Blocked by security rule"
+            
+        elif rule_action == "AUTO_ACCEPT":
             final_status = "EXECUTED"
             reason_msg = "Allowed by rule & credits available"
             # Deduct credit here
             user.credits -= 1
-        else:
-            final_status = "REJECTED"
-            reason_msg = "Insufficient Credits"
+    else:
+        final_status = "REJECTED"
+        reason_msg = "Insufficient Credits"
 
     # 3. Save to DB
     try:
@@ -121,69 +122,53 @@ def submit_command(
         db.rollback()
         raise HTTPException(status_code=500, detail="Database Error")
 
-"""    
-@app.post("/commands", response_model=schemas.CommandResponse)
-def submit_command(
-    cmd: schemas.CommandRequest, 
-    x_api_key: str = Header(...), 
+@app.get("/logs", response_model=List[schemas.LogResponse])
+def get_logs(
+    x_api_key: str = Header(...),
+    role_filter: str = "all",      # 'all', 'mine', 'other_admins', 'users'
+    status_filter: str = "all",    # 'all', 'executed', 'rejected'
+    target_api_key: str = None,    # Filter by specific user API key
+    sort_order: str = "desc",      # 'asc', 'desc'
     db: Session = Depends(database.get_db)
 ):
-    user = get_user_by_key(x_api_key, db)
+    current_user = get_user_by_key(x_api_key, db)
     
-    # 1. Check Credits
-    if user.credits <= 0:
-        raise HTTPException(status_code=403, detail="Insufficient credits")
+    # Base query joining User to access roles
+    query = db.query(models.CommandLog).join(models.User)
 
-    # 2. Match Rules
-    rules = db.query(models.Rule).all()
-    action = "AUTO_REJECT" # Default safe fallback
+    # --- Role & Permission Filtering ---
+    if current_user.role != "admin":
+        # Regular users can ONLY see their own logs
+        query = query.filter(models.CommandLog.user_id == current_user.id)
+    else:
+        # Admin Filters
+        if target_api_key:
+            target = db.query(models.User).filter(models.User.api_key == target_api_key).first()
+            if not target:
+                # Return empty if invalid key provided to filter
+                return [] 
+            query = query.filter(models.CommandLog.user_id == target.id)
+        
+        elif role_filter == "mine":
+            query = query.filter(models.CommandLog.user_id == current_user.id)
+        elif role_filter == "users":
+            query = query.filter(models.User.role == "member")
+        elif role_filter == "other_admins":
+            query = query.filter(models.User.role == "admin", models.User.id != current_user.id)
     
-    for rule in rules:
-        try:
-            if re.search(rule.pattern, cmd.command_text):
-                action = rule.action
-                break
-        except re.error:
-            continue # Skip invalid regex rules if any slipped through
+    # --- Status Filtering ---
+    if status_filter == "executed":
+        query = query.filter(models.CommandLog.status == "EXECUTED")
+    elif status_filter == "rejected":
+        query = query.filter(models.CommandLog.status != "EXECUTED") # Catch REJECTED, BLOCKED, NO_CREDITS
 
-    # 3. Execution Logic (Transaction)
-    try:
-        final_status = "rejected"
-        message = "Command blocked by rule."
-        
-        if action == "AUTO_ACCEPT":
-            # "Mock" Execution
-            user.credits -= 1
-            final_status = "executed"
-            message = f"Command '{cmd.command_text}' executed successfully."
-        
-        # Log entry
-        log_entry = models.CommandLog(
-            user_id=user.id,
-            command_text=cmd.command_text,
-            status=final_status,
-            action_taken=action
-        )
-        db.add(log_entry)
-        db.commit() # Succeeds only if both credit update (if any) and log succeed
-        
-        return {
-            "status": final_status,
-            "new_balance": user.credits,
-            "message": message
-        }
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail="Transaction failed")
-"""
+    # --- Sorting ---
+    if sort_order == "asc":
+        query = query.order_by(models.CommandLog.timestamp.asc())
+    else:
+        query = query.order_by(models.CommandLog.timestamp.desc())
 
-@app.get("/logs", response_model=List[schemas.LogResponse])
-def get_logs(x_api_key: str = Header(...), db: Session = Depends(database.get_db)):
-    user = get_user_by_key(x_api_key, db)
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return db.query(models.CommandLog).order_by(models.CommandLog.timestamp.desc()).all()
+    return query.all()
 
 @app.post("/rules", response_model=schemas.RuleResponse)
 def add_rule(rule: schemas.RuleCreate, x_api_key: str = Header(...), db: Session = Depends(database.get_db)):
@@ -209,13 +194,64 @@ def get_rules(x_api_key: str = Header(...), db: Session = Depends(database.get_d
     return db.query(models.Rule).all()
 
 @app.post("/users/generate")
-def create_user(username: str, role: str, x_api_key: str = Header(...), db: Session = Depends(database.get_db)):
+def create_user(user_data: schemas.UserCreate, x_api_key: str = Header(...), db: Session = Depends(database.get_db)):
     admin = get_user_by_key(x_api_key, db)
     if admin.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
+    # Check if username exists
+    if db.query(models.User).filter(models.User.username == user_data.username).first():
+        raise HTTPException(status_code=400, detail="Username already exists")
+
     new_key = str(uuid.uuid4())
-    new_user = models.User(username=username, role=role, api_key=new_key)
+    new_user = models.User(
+        username=user_data.username, 
+        role=user_data.role, 
+        api_key=new_key,
+        credits=user_data.credits # Now using the input credits
+    )
     db.add(new_user)
     db.commit()
-    return {"username": username, "api_key": new_key}
+    return {"username": new_user.username, "api_key": new_key}
+
+# --- User Management Endpoints ---
+
+@app.get("/users/search", response_model=schemas.UserDetail)
+def get_user_details(target_key: str, x_api_key: str = Header(...), db: Session = Depends(database.get_db)):
+    admin = get_user_by_key(x_api_key, db)
+    if admin.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    target = get_user_by_key(target_key, db) # Reusing helper (will raise 401 if invalid, which is fine)
+    return target
+
+@app.put("/users/update")
+def update_user(target_key: str, update_data: schemas.UserUpdate, x_api_key: str = Header(...), db: Session = Depends(database.get_db)):
+    admin = get_user_by_key(x_api_key, db)
+    if admin.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+        
+    target = db.query(models.User).filter(models.User.api_key == target_key).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    target.username = update_data.username
+    target.credits = update_data.credits
+    db.commit()
+    return {"message": "User updated"}
+
+@app.delete("/users/delete")
+def delete_user(target_key: str, x_api_key: str = Header(...), db: Session = Depends(database.get_db)):
+    admin = get_user_by_key(x_api_key, db)
+    if admin.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+        
+    target = db.query(models.User).filter(models.User.api_key == target_key).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # Optional: Delete associated logs first or rely on cascade
+    db.query(models.CommandLog).filter(models.CommandLog.user_id == target.id).delete()
+    db.delete(target)
+    db.commit()
+    return {"message": "User deleted"}

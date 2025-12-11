@@ -31,3 +31,22 @@ class LogResponse(BaseModel):
     timestamp: datetime
     class Config:
         from_attributes = True
+
+class UserUpdate(BaseModel):
+    username: str
+    credits: int
+
+class UserDetail(BaseModel):
+    id: int
+    username: str
+    role: str
+    credits: int
+    api_key: str
+    class Config:
+        from_attributes = True
+
+# Update UserCreate to include credits
+class UserCreate(BaseModel):
+    username: str
+    role: str
+    credits: int = 100 # Default if not provided

@@ -15,73 +15,143 @@
         <p class="hint">Try: <b>admin-secret-key</b></p>
       </div>
 
-      <div id="dashboard-section" style="display: none">
-        <div class="header">
-          <span id="user-info"></span>
-          <button onclick="logout()" class="logout-btn">Logout</button>
-        </div>
-
-        <div class="grid">
-          <div class="card">
-            <h2>Run Command</h2>
-            <input type="text" id="cmd-input" placeholder="e.g. ls -la" />
-            <button onclick="submitCommand()">Execute</button>
-            <div id="cmd-result" class="result-box"></div>
+      <div id="dashboard-section" style="display:none;">
+          <div class="header">
+              <span id="user-info"></span>
+              <button onclick="logout()" class="logout-btn">Logout</button>
           </div>
-
-          <div class="card">
-            <h2>Credits</h2>
-            <div id="credit-display" class="big-number">--</div>
-          </div>
-        </div>
-
-        <div id="admin-panel" style="display: none">
-          <hr />
-          <h2>Admin Controls</h2>
 
           <div class="grid">
-            <div class="card">
-              <h3>Add Rule</h3>
-              <input
-                type="text"
-                id="rule-pattern"
-                placeholder="Regex (e.g. ^git.*)"
-              />
-              <select id="rule-action">
-                <option value="AUTO_ACCEPT">AUTO_ACCEPT</option>
-                <option value="AUTO_REJECT">AUTO_REJECT</option>
-              </select>
-              <button onclick="addRule()">Save Rule</button>
-            </div>
+              <div class="card">
+                  <h2>Run Command</h2>
+                  <input type="text" id="cmd-input" placeholder="e.g. ls -la">
+                  <button onclick="submitCommand()">Execute</button>
+                  
+                  <div id="cmd-result-container" style="display:none; margin-top:15px; border-top:1px solid #444; padding-top:10px;">
+                      <p><strong>Status:</strong> <span id="res-status"></span></p>
+                      <p><strong>Reason:</strong> <span id="res-reason" style="color:#ccc;"></span></p>
+                  </div>
+              </div>
 
-            <div class="card">
-              <h3>Create User</h3>
-              <input type="text" id="new-username" placeholder="Username" />
-              <select id="new-role">
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button onclick="createUser()">Generate Key</button>
-              <p id="new-user-key"></p>
-            </div>
+              <div class="card">
+                  <h2>Balance Command Credits</h2>
+                  <div id="credit-display" class="big-number">--</div>
+              </div>
+
+              <div class="card">
+                <h3>Active Rules</h3>
+                <p style="font-size:0.8em; color:#888;">Commands matching these patterns trigger actions.</p>
+                <table id="rules-list-table">
+                    <thead>
+                        <tr>
+                            <th>Pattern</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+              </div>
           </div>
 
-          <div class="card">
-            <h3>Audit Logs</h3>
-            <button onclick="fetchLogs()">Refresh Logs</button>
-            <table id="logs-table">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>User ID</th>
-                        <th>Command</th>
-                        <th>Status</th>
-                        <th>Reason</th> </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+          <div id="admin-panel" style="display:none;">
+              <hr>
+              <h2>Admin Controls</h2>
+              
+              <div class="card">
+                  <h3>User Management</h3>
+                  <div style="display:flex; gap:10px; margin-bottom:10px;">
+                      <input type="text" id="manage-api-key" placeholder="Enter User API Key to Edit">
+                      <button onclick="searchUser()">Search</button>
+                  </div>
+
+                  <div id="edit-user-form" style="display:none; background:#222; padding:10px; border-radius:5px;">
+                      <label>Username:</label>
+                      <input type="text" id="edit-username">
+                      <label>Credits:</label>
+                      <input type="number" id="edit-credits">
+                      <div style="margin-top:10px;">
+                          <button onclick="saveUserChanges()" style="background:#28a745;">Update</button>
+                          <button onclick="deleteUser()" style="background:#dc3545;">Delete User</button>
+                      </div>
+                  </div>
+
+                  <hr style="border-color:#444; margin: 15px 0;">
+                  
+                  <h3>Create New User</h3>
+                  <input type="text" id="new-username" placeholder="Username">
+                  <input type="number" id="new-credits" placeholder="Initial Credits" value="100">
+                  <select id="new-role">
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                  </select>
+                  <button onclick="createUser()">Generate User</button>
+                  <p id="new-user-key"></p>
+              </div>
+
+              <div class="card">
+                  <h3>Add Rule</h3>
+                  <input type="text" id="rule-pattern" placeholder="Regex (e.g. ^git.*)">
+                  <select id="rule-action">
+                      <option value="AUTO_ACCEPT">AUTO_ACCEPT</option>
+                      <option value="AUTO_REJECT">AUTO_REJECT</option>
+                  </select>
+                  <button onclick="addRule()">Save Rule</button>
+              </div>
+
+              <div class="card">
+                  <h3>System Audit Logs</h3>
+                  <div class="filters">
+                      <select id="admin-role-filter" onchange="fetchAdminLogs()">
+                          <option value="all">Role: All</option>
+                          <option value="mine">Mine</option>
+                          <option value="other_admins">Other Admins</option>
+                          <option value="users">Users Only</option>
+                      </select>
+                      <select id="admin-status-filter" onchange="fetchAdminLogs()">
+                          <option value="all">Status: All</option>
+                          <option value="executed">Executed</option>
+                          <option value="rejected">Rejected</option>
+                      </select>
+                      <input type="text" id="admin-key-filter" placeholder="Filter by specific API Key..." onchange="fetchAdminLogs()">
+                      <button onclick="toggleAdminSort()" id="admin-sort-btn">Time ↓</button>
+                  </div>
+                  
+                  <table id="admin-logs-table">
+                      <thead>
+                          <tr>
+                              <th>Time</th>
+                              <th>Role</th> <th>Command</th>
+                              <th>Status</th>
+                              <th>Reason</th>
+                          </tr>
+                      </thead>
+                      <tbody></tbody>
+                  </table>
+              </div>
           </div>
-        </div>
+
+          <div class="card" id="user-history-card">
+              <h3>My Command History</h3>
+              <div class="filters">
+                  <select id="user-status-filter" onchange="fetchUserLogs()">
+                      <option value="all">Status: All</option>
+                      <option value="executed">Executed</option>
+                      <option value="rejected">Rejected</option>
+                  </select>
+                  <button onclick="toggleUserSort()" id="user-sort-btn">Time ↓</button>
+              </div>
+              <table id="user-logs-table">
+                  <thead>
+                      <tr>
+                          <th>Time</th>
+                          <th>Command</th>
+                          <th>Status</th>
+                          <th>Reason</th>
+                      </tr>
+                  </thead>
+                  <tbody></tbody>
+              </table>
+          </div>
       </div>
     </div>
     <script src="app.js"></script>
