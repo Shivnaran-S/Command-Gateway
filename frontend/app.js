@@ -113,7 +113,9 @@ async function fetchAdminLogs() {
     tbody.innerHTML = logs.map(l => `
         <tr>
             <td>${new Date(l.timestamp).toLocaleTimeString()}</td>
-            <td>${l.user_id === currentUser.id ? 'Me' : 'User ' + l.user_id}</td>
+            
+            <td>${l.username} ${l.username === currentUser.username ? '(Me)' : ''}</td>
+            
             <td>${l.command_text}</td>
             <td style="color:${l.status==='EXECUTED'?'lime':'red'}">${l.status}</td>
             <td>${l.reason}</td>

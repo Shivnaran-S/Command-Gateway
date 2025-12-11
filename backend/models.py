@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.sql import func
 from .database import Base
+from sqlalchemy.orm import relationship
 
 class User(Base):
     __tablename__ = "users"
@@ -24,3 +25,9 @@ class CommandLog(Base):
     status = Column(String(50))    # 'executed', 'rejected'
     reason = Column(String(50))
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+    @property
+    def username(self):
+        return self.user.username if self.user else "Unknown"

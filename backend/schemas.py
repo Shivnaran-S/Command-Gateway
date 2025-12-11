@@ -25,6 +25,7 @@ class CommandResponse(BaseModel):
 
 class LogResponse(BaseModel):
     user_id: int
+    username: str  
     command_text: str
     status: str
     reason: str
