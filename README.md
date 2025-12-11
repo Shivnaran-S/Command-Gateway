@@ -41,5 +41,5 @@ After opening it, **start Command Gatewaying**.
 ## 5. Demo Video
 
 You can view the demo video here:  
-[Demo Video (Google Doc Link)](https://docs.google.com/document/d/1-b3F8uqVpk0l62baEQ2dI_wrUWvFWrK7605DHCLe39s/edit?usp=sharing)
+[Demo Video]([https://docs.google.com/document/d/1-b3F8uqVpk0l62baEQ2dI_wrUWvFWrK7605DHCLe39s/edit?usp=sharing](https://drive.google.com/drive/folders/1U_kXlqqk6uU7m-hPDfgHwcFjkWlsSU6-?usp=sharing))
 
